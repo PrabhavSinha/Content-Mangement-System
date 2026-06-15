@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import requests
+import os
 
 app = FastAPI()
 
@@ -12,12 +13,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SPRING_BOOT_URL = "http://localhost:8080/api/sql"
-NODE_JS_URL     = "http://localhost:5000/api/mongo"
+SPRING_BOOT_URL = os.getenv("SPRING_BOOT_URL", "http://localhost:8080")
+NODE_URL = os.getenv("NODE_URL", "http://localhost:5000")
 
 # ─────────────────────────────────────────────
 # HELPER FUNCTIONS
 # ─────────────────────────────────────────────
+
 def safe_post(url, payload, headers={}):
     try:
         res = requests.post(url, json=payload, headers=headers, timeout=10)
@@ -47,7 +49,6 @@ def safe_delete(url, headers={}):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Extract Authorization header from incoming request and forward it
 def get_auth_header(request: Request):
     auth = request.headers.get("Authorization")
     if auth:
@@ -60,22 +61,22 @@ def get_auth_header(request: Request):
 
 @app.post("/gateway/signup")
 def signup(payload: dict):
-    result = safe_post(f"{SPRING_BOOT_URL}/signup", payload)
+    result = safe_post(f"{SPRING_BOOT_URL}/api/sql/signup", payload)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
 
 @app.post("/gateway/login")
 def login(payload: dict):
-    result = safe_post(f"{SPRING_BOOT_URL}/login", payload)
+    result = safe_post(f"{SPRING_BOOT_URL}/api/sql/login", payload)
     if "error" in result:
         raise HTTPException(status_code=401, detail=result["error"])
-    return result  # includes JWT token
+    return result
 
 @app.get("/gateway/verify")
 def verify_token(request: Request):
     headers = get_auth_header(request)
-    return safe_get(f"{SPRING_BOOT_URL}/verify", headers=headers)
+    return safe_get(f"{SPRING_BOOT_URL}/api/sql/verify", headers=headers)
 
 # ─────────────────────────────────────────────
 # DRAFT ROUTES — JWT forwarded
@@ -84,19 +85,19 @@ def verify_token(request: Request):
 @app.post("/gateway/drafts")
 def save_draft(payload: dict, request: Request):
     headers = get_auth_header(request)
-    result = safe_post(f"{SPRING_BOOT_URL}/drafts", payload, headers=headers)
+    result = safe_post(f"{SPRING_BOOT_URL}/api/sql/drafts", payload, headers=headers)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
 
 @app.get("/gateway/drafts")
 def get_drafts():
-    return safe_get(f"{SPRING_BOOT_URL}/drafts")
+    return safe_get(f"{SPRING_BOOT_URL}/api/sql/drafts")
 
 @app.delete("/gateway/drafts/{draft_id}")
 def delete_draft(draft_id: int, request: Request):
     headers = get_auth_header(request)
-    return safe_delete(f"{SPRING_BOOT_URL}/drafts/{draft_id}", headers=headers)
+    return safe_delete(f"{SPRING_BOOT_URL}/api/sql/drafts/{draft_id}", headers=headers)
 
 # ─────────────────────────────────────────────
 # PUBLISH ROUTES — JWT forwarded
@@ -107,7 +108,7 @@ def publish_content(payload: dict, request: Request):
     headers = get_auth_header(request)
 
     # Step 1: Save to PostgreSQL via Spring Boot (with JWT)
-    sql_data = safe_post(f"{SPRING_BOOT_URL}/publish", payload, headers=headers)
+    sql_data = safe_post(f"{SPRING_BOOT_URL}/api/sql/publish", payload, headers=headers)
     if "error" in sql_data:
         raise HTTPException(status_code=400, detail=sql_data["error"])
 
@@ -121,7 +122,7 @@ def publish_content(payload: dict, request: Request):
             "version":   1,
             "status":    "published"
         }
-        requests.post(f"{NODE_JS_URL}/version", json=mongo_payload, timeout=5)
+        requests.post(f"{NODE_URL}/api/mongo/version", json=mongo_payload, timeout=5)
     except Exception:
         print("[WARNING] MongoDB version sync failed")
 
@@ -129,13 +130,12 @@ def publish_content(payload: dict, request: Request):
 
 @app.get("/gateway/content")
 def get_content():
-    return safe_get(f"{SPRING_BOOT_URL}/content")
+    return safe_get(f"{SPRING_BOOT_URL}/api/sql/content")
 
-# ADMIN ONLY — delete published content
 @app.delete("/gateway/content/{content_id}")
 def delete_content(content_id: int, request: Request):
     headers = get_auth_header(request)
-    return safe_delete(f"{SPRING_BOOT_URL}/content/{content_id}", headers=headers)
+    return safe_delete(f"{SPRING_BOOT_URL}/api/sql/content/{content_id}", headers=headers)
 
 # ─────────────────────────────────────────────
 # SEARCH ROUTE — Node.js vector search
@@ -144,16 +144,19 @@ def delete_content(content_id: int, request: Request):
 @app.post("/gateway/search")
 def search_content(payload: dict):
     try:
-        return safe_post(f"{NODE_JS_URL}/search", payload)
+        return safe_post(f"{NODE_URL}/api/mongo/search", payload)
     except HTTPException:
         print("[WARNING] Node.js search service unreachable")
         return []
 
-# ADMIN ONLY — get all users
+# ─────────────────────────────────────────────
+# ADMIN ROUTES — JWT forwarded
+# ─────────────────────────────────────────────
+
 @app.get("/gateway/admin/users")
 def get_all_users(request: Request):
     headers = get_auth_header(request)
-    return safe_get(f"{SPRING_BOOT_URL}/admin/users", headers=headers)
+    return safe_get(f"{SPRING_BOOT_URL}/api/sql/admin/users", headers=headers)
 
 # ─────────────────────────────────────────────
 # HEALTH CHECK
@@ -163,12 +166,12 @@ def get_all_users(request: Request):
 def health_check():
     status = {}
     try:
-        requests.get(f"{SPRING_BOOT_URL}/content", timeout=3)
+        requests.get(f"{SPRING_BOOT_URL}/api/sql/content", timeout=3)
         status["spring_boot"] = "UP"
     except:
         status["spring_boot"] = "DOWN — check port 8080"
     try:
-        requests.get(f"http://localhost:5000/health", timeout=3)
+        requests.get(f"{NODE_URL}/health", timeout=3)
         status["node_js"] = "UP"
     except:
         status["node_js"] = "DOWN — check port 5000"

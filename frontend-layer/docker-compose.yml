@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+
+  postgres:
+    image: postgres:15
+    container_name: cms-postgres
+    environment:
+      POSTGRES_DB: content_management
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Parv123@
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - cms-network
+
+  mongodb:
+    image: mongo:6
+    container_name: cms-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - cms-network
+
+  spring-boot:
+    build: ./cms-sql-service
+    container_name: cms-spring-boot
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/content_management
+      DB_USERNAME: postgres
+      DB_PASSWORD: Parv123@
+    depends_on:
+      - postgres
+    networks:
+      - cms-network
+
+  node-service:
+    build: ./node-layer
+    container_name: cms-node-service
+    ports:
+      - "5000:5000"
+    environment:
+      MONGO_URL: mongodb://mongodb:27017/content_db
+    depends_on:
+      - mongodb
+    networks:
+      - cms-network
+
+  gateway:
+    build: ./node-layer/gateway-layer
+    container_name: cms-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      SPRING_BOOT_URL: http://spring-boot:8080
+      NODE_URL: http://node-service:5000
+    depends_on:
+      - spring-boot
+      - node-service
+    networks:
+      - cms-network
+
+  frontend:
+    build: ./frontend-layer
+    container_name: cms-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - gateway
+    networks:
+      - cms-network
+
+volumes:
+  postgres_data:
+  mongo_data:
+
+networks:
+  cms-network:
+    driver: bridge

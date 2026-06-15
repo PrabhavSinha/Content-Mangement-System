@@ -9,7 +9,9 @@ app.use(cors());
 // ─────────────────────────────────────────────
 // MongoDB Connection
 // ─────────────────────────────────────────────
-mongoose.connect('mongodb://localhost:27017/content_db')
+const MONGO_URL = process.env.MONGO_URL || 'mongodb://localhost:27017/content_db';
+
+mongoose.connect(MONGO_URL)
   .then(() => console.log('✅ Connected to MongoDB Successfully'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
@@ -41,9 +43,9 @@ const EditLogSchema = new mongoose.Schema({
     timestamp:  { type: Date, default: Date.now }
 });
 
-const Version  = mongoose.model('Version',  VersionSchema,  'content_versions');
+const Version   = mongoose.model('Version',   VersionSchema,   'content_versions');
 const Embedding = mongoose.model('Embedding', EmbeddingSchema, 'content_embeddings');
-const EditLog  = mongoose.model('EditLog',  EditLogSchema,  'edit_logs');
+const EditLog   = mongoose.model('EditLog',   EditLogSchema,   'edit_logs');
 
 // ─────────────────────────────────────────────
 // HELPER: Generate a simple TF-based embedding
@@ -90,10 +92,10 @@ function cosineSimilarity(vecA, vecB) {
 
 // 1. Health check
 app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'UP', 
+    res.json({
+        status: 'UP',
         mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-        port: 5000
+        port: PORT
     });
 });
 
@@ -118,7 +120,7 @@ app.post('/api/mongo/version', async (req, res) => {
         // Log the action
         await EditLog.create({ contentId, action: 'published' });
 
-        res.status(201).json({ 
+        res.status(201).json({
             message: "Version logged and embedding stored in MongoDB",
             contentId,
             version
@@ -131,8 +133,8 @@ app.post('/api/mongo/version', async (req, res) => {
 // 3. Fetch all versions for a specific content ID
 app.get('/api/mongo/versions/:contentId', async (req, res) => {
     try {
-        const versions = await Version.find({ 
-            contentId: req.params.contentId 
+        const versions = await Version.find({
+            contentId: req.params.contentId
         }).sort({ version: -1 });
         res.json(versions);
     } catch (err) {
@@ -179,7 +181,7 @@ app.post('/api/mongo/search', async (req, res) => {
 
         // Sort by similarity score descending, return top 5
         const topResults = scored
-            .filter(r => r.score > 0.1)   // threshold — ignore irrelevant
+            .filter(r => r.score > 0.1)
             .sort((a, b) => b.score - a.score)
             .slice(0, 5);
 
@@ -223,7 +225,7 @@ app.get('/api/mongo/embeddings', async (req, res) => {
 // ─────────────────────────────────────────────
 // START SERVER
 // ─────────────────────────────────────────────
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`✅ Node.js MongoDB service running on port ${PORT}`);
     console.log(`   Version API : http://localhost:${PORT}/api/mongo/version`);
