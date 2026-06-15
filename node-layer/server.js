@@ -9,7 +9,7 @@ app.use(cors());
 // ─────────────────────────────────────────────
 // MongoDB Connection
 // ─────────────────────────────────────────────
-const MONGO_URL = process.env.MONGO_URL || 'mongodb://localhost:27017/content_db';
+const MONGO_URL = process.env.MONGO_URL || 'mongodb+srv://parvchess786_db_user:YkBIb3JBYjDBNHGD@cluster0.366v3q9.mongodb.net/content_db?appName=Cluster0';
 
 mongoose.connect(MONGO_URL)
   .then(() => console.log('✅ Connected to MongoDB Successfully'))
